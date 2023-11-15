@@ -16,6 +16,7 @@ from peft import (
     prepare_model_for_int8_training,
     set_peft_model_state_dict,
 )
+from pklue import get_mixture
 
 from utils.prompter import Prompter
 
@@ -26,7 +27,10 @@ def train(
     # model/data params
     base_model: str = "EleutherAI/polyglot-ko-1.3b",  # the only required argument
     output_dir: str = "./lora-alpaca",
-    do_peft: bool = True,
+    do_peft: bool = False,
+    data_mixture: List[str] = None,
+    max_example: int = None,
+    vram_available: str = None,
     # training hyperparams
     per_device_train_batch_size: int = 0,
     gradient_accumulation_steps: int = 0,
@@ -35,6 +39,7 @@ def train(
     cutoff_len: int = 2048,
     val_set_size: int = 2000,
     warmup_ratio: float = 0.0,
+    warmup_steps: int = 0,
     logging_steps: int = 1,
     eval_steps: int = 200,
     save_steps: int = 200,
@@ -43,7 +48,7 @@ def train(
     lora_r: int = 32,
     lora_alpha: int = 64,
     lora_dropout: float = 0.05,
-    lora_target_modules: List[str] = None,
+    lora_target_modules: List[str] = ["query_key_value", "dense", "dense_h_to_4h", "dense_4h_to_h"],
     # llm hyperparams
     train_on_inputs: bool = True,  # if False, masks out inputs in loss
     add_eos_token: bool = False,
@@ -54,13 +59,16 @@ def train(
     wandb_watch: str = "",  # options: false | gradients | all
     wandb_log_model: str = "",  # options: false | true
     resume_from_checkpoint: str = None,  # either training checkpoint or final adapter
-    prompt_template_name: str = "kullm-v2",  # The prompt template to use, will default to alpaca.
+    prompt_template_name: str = "kullm",  # The prompt template to use, will default to alpaca.
 ):
-    setproctitle.setproctitle(f"potatowook kullm {Path(output_dir).name}")
+    setproctitle.setproctitle(f"potatowook {Path(output_dir).name}")
     print(type(add_eos_token))
     if int(os.environ.get("LOCAL_RANK", 0)) == 0:
         print(
             f"Training KULLM model with params:\n"
+            f"{debug=}\n"
+            f"{max_example=}\n"
+            f"{vram_available=}\n"
             f"base_model: {base_model}\n"
             f"output_dir: {output_dir}\n"
             f"per_device_train_batch_size: {per_device_train_batch_size}\n"
@@ -105,7 +113,7 @@ def train(
     model = GPTNeoXForCausalLM.from_pretrained(
         base_model,
         torch_dtype=torch.float16,
-        low_cpu_memory_usage=True,
+        low_cpu_mem_usage=True,
     )
 
     tokenizer = GPTNeoXTokenizerFast.from_pretrained(base_model)
@@ -169,16 +177,29 @@ def train(
         model.print_trainable_parameters()
         ds_config_file = None
     else:
-        ds_config_file = "./ds_config/experimenting_2.json"
+        if vram_available == "82GB":
+            ds_config_file = "ds_config/experimenting_a100.json"
+        elif vram_available == "48GB":
+            ds_config_file = "ds_config/experimenting_a6000_nooffload.json"
+        else:
+            raise NotImplementedError
 
-    data = make_my_dataset(debug, mode, 3000)
+    if not debug:
+        data = get_mixture(dataset_names=data_mixture, max_examples=max_example, split='train')
+    else:
+        data = get_mixture(dataset_names=['klue'], max_examples=1000, split='train')
+
+    print("---")
+    print(data)
+    print(f"{val_set_size}")
+    print("---")
 
     if val_set_size > 0:
         train_val = data["train"].train_test_split(test_size=val_set_size, shuffle=True, seed=42)
         train_data = train_val["train"].shuffle().map(generate_and_tokenize_prompt)
         val_data = train_val["test"].shuffle().map(generate_and_tokenize_prompt)
     else:
-        train_data = data["train"].shuffle().map(generate_and_tokenize_prompt)
+        train_data = data.shuffle().map(generate_and_tokenize_prompt)
         val_data = None
 
     # if not ddp and torch.cuda.device_count() > 1:
@@ -193,14 +214,13 @@ def train(
         args=transformers.TrainingArguments(
             per_device_train_batch_size=per_device_train_batch_size,
             gradient_accumulation_steps=gradient_accumulation_steps,
-            warmup_steps=30,
+            warmup_steps=warmup_steps,
             # warmup_ratio=warmup_ratio,
             num_train_epochs=num_epochs,
             learning_rate=learning_rate,
-            # fp16=True,
-            lr_scheduler_type=lr_scheduler_type,
+            # lr_scheduler_type=lr_scheduler_type,
             logging_steps=logging_steps,
-            optim="adamw_torch",
+            # optim="adamw_torch",  # since we use DS optim?
             evaluation_strategy="steps" if val_set_size > 0 else "no",
             save_strategy="steps",
             # eval_steps=200 if val_set_size > 0 else None,
@@ -210,7 +230,7 @@ def train(
             # save_total_limit=3,
             load_best_model_at_end=True if val_set_size > 0 else False,
             # ddp_find_unused_parameters=False if ddp else None,
-            ddp_find_unused_parameters=True,
+            # ddp_find_unused_parameters=True,
             group_by_length=group_by_length,
             report_to="wandb" if use_wandb else [],
             run_name=wandb_run_name if use_wandb else None,

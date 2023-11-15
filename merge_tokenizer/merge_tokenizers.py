@@ -45,14 +45,14 @@ print(f"New model pieces: {len(llama_spm.pieces)}")
 
 ## Save
 output_sp_dir = "merged_tokenizer_sp"
-output_hf_dir = "merged_tokenizer_hf"  # the path to save KULLM tokenizer
+output_hf_dir = "merged_tokenizer_hf"  # the path to save KULLM-enhancement tokenizer
 os.makedirs(output_sp_dir, exist_ok=True)
 with open(output_sp_dir + "/kor_llama.model", "wb") as f:
     f.write(llama_spm.SerializeToString())
 tokenizer = LlamaTokenizer(vocab_file=output_sp_dir + "/kor_llama.model")
 
 tokenizer.save_pretrained(output_hf_dir)
-print(f"KULLM tokenizer has been saved to {output_hf_dir}")
+print(f"KULLM-enhancement tokenizer has been saved to {output_hf_dir}")
 
 
 # Test
@@ -61,8 +61,8 @@ kor_llama_tokenizer = LlamaTokenizer.from_pretrained(output_hf_dir)
 print(tokenizer.all_special_tokens)
 print(tokenizer.all_special_ids)
 print(tokenizer.special_tokens_map)
-text = """안녕하세요. 고려대학교 구름 (KULLM) 토크나이저 입니다.
+text = """안녕하세요. 고려대학교 구름 (KULLM-enhancement) 토크나이저 입니다.
 The primary use of LLaMA is research on large language models, including"""
 print("Test text:\n", text)
 print(f"Tokenized by LLaMA tokenizer:{llama_tokenizer.tokenize(text)}")
-print(f"Tokenized by KULLM tokenizer:{kor_llama_tokenizer.tokenize(text)}")
+print(f"Tokenized by KULLM-enhancement tokenizer:{kor_llama_tokenizer.tokenize(text)}")
