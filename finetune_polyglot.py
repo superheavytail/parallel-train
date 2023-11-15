@@ -7,14 +7,8 @@ import fire
 import setproctitle
 import torch
 import transformers
+from transformers import GPTNeoXForCausalLM, GPTNeoXTokenizerFast
 from datasets import load_dataset
-
-"""
-Unused imports:
-import torch.nn as nn
-import bitsandbytes as bnb
-"""
-
 from peft import (
     LoraConfig,
     get_peft_model,
@@ -22,19 +16,16 @@ from peft import (
     prepare_model_for_int8_training,
     set_peft_model_state_dict,
 )
-from transformers import GPTNeoXForCausalLM, GPTNeoXTokenizerFast
 
 from utils.prompter import Prompter
-from make_pkobest import make_my_dataset
 
 
 def train(
     debug: bool = False,
+    mode: str = None,
     # model/data params
     base_model: str = "EleutherAI/polyglot-ko-1.3b",  # the only required argument
-    data_path: str = "/data/kullm-v2",
     output_dir: str = "./lora-alpaca",
-    mode: str = None,
     do_peft: bool = True,
     # training hyperparams
     per_device_train_batch_size: int = 0,
@@ -71,7 +62,6 @@ def train(
         print(
             f"Training KULLM model with params:\n"
             f"base_model: {base_model}\n"
-            f"data_path: {data_path}\n"
             f"output_dir: {output_dir}\n"
             f"per_device_train_batch_size: {per_device_train_batch_size}\n"
             f"gradient_accumulation_steps: {gradient_accumulation_steps}\n"
@@ -99,13 +89,6 @@ def train(
 
     prompter = Prompter(prompt_template_name)
 
-    device_map = "auto"
-    world_size = int(os.environ.get("WORLD_SIZE", 1))
-    ddp = world_size != 1
-    # if ddp:
-    #     device_map = {"": int(os.environ.get("LOCAL_RANK") or 0)}
-    #     gradient_accumulation_steps = gradient_accumulation_steps // world_size
-
     # Check if parameter passed or if set within environ
     print(f"{wandb_project=}")
     use_wandb = len(wandb_project) > 0 or ("WANDB_PROJECT" in os.environ and len(os.environ["WANDB_PROJECT"]) > 0)
@@ -121,9 +104,8 @@ def train(
 
     model = GPTNeoXForCausalLM.from_pretrained(
         base_model,
-        # load_in_8bit=True,
-        # torch_dtype=torch.float16,
-        # device_map=device_map,
+        torch_dtype=torch.float16,
+        low_cpu_memory_usage=True,
     )
 
     tokenizer = GPTNeoXTokenizerFast.from_pretrained(base_model)
@@ -173,8 +155,6 @@ def train(
             ]  # could be sped up, probably
         return tokenized_full_prompt
 
-    # model = prepare_model_for_int8_training(model)
-
     if do_peft:
         config = LoraConfig(
             r=lora_r,
@@ -191,30 +171,7 @@ def train(
     else:
         ds_config_file = "./ds_config/experimenting_2.json"
 
-    # if data_path.endswith(".json") or data_path.endswith(".jsonl"):
-    #     data = load_dataset("json", data_files=data_path)
-    # else:
-    #     data = load_dataset(data_path)
-
     data = make_my_dataset(debug, mode, 3000)
-
-    # comment out since this code only works when peft
-
-    # if resume_from_checkpoint:
-    #     # Check the available weights and load them
-    #     checkpoint_name = os.path.join(resume_from_checkpoint, "pytorch_model.bin")  # Full checkpoint
-    #     if not os.path.exists(checkpoint_name):
-    #         checkpoint_name = os.path.join(
-    #             resume_from_checkpoint, "adapter_model.bin"
-    #         )  # only LoRA model - LoRA config above has to fit
-    #         resume_from_checkpoint = False  # So the trainer won't try loading its state
-    #     # The two files above have a different name depending on how they were saved, but are actually the same.
-    #     if os.path.exists(checkpoint_name):
-    #         print(f"Restarting from {checkpoint_name}")
-    #         adapters_weights = torch.load(checkpoint_name)
-    #         set_peft_model_state_dict(model, adapters_weights)
-    #     else:
-    #         print(f"Checkpoint {checkpoint_name} not found")
 
     if val_set_size > 0:
         train_val = data["train"].train_test_split(test_size=val_set_size, shuffle=True, seed=42)
@@ -237,15 +194,15 @@ def train(
             per_device_train_batch_size=per_device_train_batch_size,
             gradient_accumulation_steps=gradient_accumulation_steps,
             warmup_steps=30,
-            # warmup_ratio=0.01,
+            # warmup_ratio=warmup_ratio,
             num_train_epochs=num_epochs,
             learning_rate=learning_rate,
             # fp16=True,
-            lr_scheduler_type=lr_scheduler_type,  # hf 스케줄러 빼보자
+            lr_scheduler_type=lr_scheduler_type,
             logging_steps=logging_steps,
             optim="adamw_torch",
             evaluation_strategy="steps" if val_set_size > 0 else "no",
-            save_strategy="epoch",
+            save_strategy="steps",
             # eval_steps=200 if val_set_size > 0 else None,
             eval_steps=eval_steps,
             save_steps=save_steps,
@@ -259,7 +216,7 @@ def train(
             run_name=wandb_run_name if use_wandb else None,
             fp16=True,
             gradient_checkpointing=True,
-            # deepspeed=ds_config_file,
+            deepspeed=ds_config_file,
         ),
         data_collator=transformers.DataCollatorForSeq2Seq(
             tokenizer, pad_to_multiple_of=8, return_tensors="pt", padding=True

@@ -11,7 +11,7 @@ parser.add_argument("--llama_tokenizer_dir", default="meta-llama/Llama-2-13b", t
 parser.add_argument("--kor_sp_model_file", default="/data/joon/kopora/lmdata/llama2_kor.model", type=str)
 args = parser.parse_args()
 
-llama_tokenizer_dir = args.llama_tokenizer_dir
+llama_tokenizer_dir = args.llama_tokenizer_ddir
 kor_sp_model_file = args.kor_sp_model_file
 
 # load
