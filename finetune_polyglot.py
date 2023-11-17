@@ -50,7 +50,7 @@ def train(
     lora_dropout: float = 0.05,
     lora_target_modules: List[str] = ["query_key_value", "dense", "dense_h_to_4h", "dense_4h_to_h"],
     # llm hyperparams
-    train_on_inputs: bool = True,  # if False, masks out inputs in loss
+    train_on_inputs: bool = False,  # if False, masks out inputs in loss
     add_eos_token: bool = False,
     group_by_length: bool = False,  # faster, but produces an odd training loss curve
     # wandb params
