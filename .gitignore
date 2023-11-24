@@ -2,3 +2,4 @@ data/kullm-v2.jsonl
 .idea
 test*.py
 test*.sh
+!test.py
