@@ -3,3 +3,5 @@ data/kullm-v2.jsonl
 test*.py
 test*.sh
 !test.py
+!test_do_evalharness.py
+!test_do_evalharness.sh
