@@ -3,6 +3,7 @@ A dedicated helper to manage templates and prompt building.
 """
 
 import json
+import random
 import os.path as osp
 from typing import Union
 
@@ -49,3 +50,28 @@ class Prompter(object):
 
     def get_response(self, output: str) -> str:
         return output.split(self.template["response_split"])[1].strip()
+
+
+def make_instruction_with_random_template(instruction: str) -> str:
+    ORIGINAL_PROB = 0.5  # probability to give original template
+    original_template = "{instruction}"
+    crafted_templates = [
+        "<s>[INST] {instruction} [/INST]",
+        "User: {instruction}<|end_of_turn|>",
+        "User: {instruction}",
+        "### Instruction: \n {instruction}\n",
+        "### Input: \n {instruction}\n",
+        "<s>[INST] <SYS>{instruction} [/INST]",
+        "{instruction}  정답은?",
+        "{instruction}  \n 옳은 것: ",
+        "{instruction}  :",
+        "문제\n{instruction}\n\n정답\n",
+        "### {instruction} ### ",
+        "[입력] {instruction} [출력] ",
+        "## 사용자: {instruction} ## 응답:"
+    ]
+    if random.random() < ORIGINAL_PROB:
+        template = original_template
+    else:
+        template = random.choice(crafted_templates)
+    return template.format_map({"instruction": instruction})
