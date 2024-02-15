@@ -14,6 +14,7 @@ from datasets import load_dataset, load_from_disk, concatenate_datasets
 from pklue import get_mixture
 
 from utils.prompter import Prompter, make_instruction_with_random_template
+from utils.load_additional_dataset import load_openorca_ko, load_platypus_ko
 
 
 def train(
@@ -25,6 +26,7 @@ def train(
     data_mixture: List[str] = None,
     max_example: int = None,
     vram_available: str = None,
+    add_kodata: bool = False,
     # training hyperparams
     per_device_train_batch_size: int = 0,
     gradient_accumulation_steps: int = 0,
@@ -60,6 +62,7 @@ def train(
             f"base_model: {base_model}\n"
             f"output_dir: {output_dir}\n"
             f"data_mixture: {data_mixture}\n"
+            f"add_kodata: {add_kodata}\n"
             f"per_device_train_batch_size: {per_device_train_batch_size}\n"
             f"gradient_accumulation_steps: {gradient_accumulation_steps}\n"
             f"num_epochs: {num_epochs}\n"
@@ -178,6 +181,13 @@ def train(
             data = concatenate_datasets([data1, data2])
         else:
             data = get_mixture(dataset_names=data_mixture, max_examples=max_example, split='train')
+
+        # Added feature: mix other data (KOpen-platypus, OpenOrca-KO)
+        if add_kodata:
+            print('\033[95m' + "Mixing Additional Korean Data..." + '\033[0m')
+            platypus_ko = load_platypus_ko()
+            openorca_ko = load_openorca_ko()
+            data = concatenate_datasets([data, platypus_ko, openorca_ko])
     else:
         data = get_mixture(dataset_names=['kobest'], max_examples=1000, split='train')
 
