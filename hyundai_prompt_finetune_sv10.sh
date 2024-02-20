@@ -11,7 +11,7 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun --nproc_per_node=8 finetune.py \
     --debug False \
     --mode $WANDB_NAME \
     --base_model 'EleutherAI/polyglot-ko-12.8b' \
-    --output_dir "/mnt/raid6/potatowook/hyundai-llm-ckpt/"$WANDB_NAME \
+    --output_dir "/mnt/md0/potatowook/hyundai-llm-ckpt/"$WANDB_NAME \
     --data_mixture "[kullm_v2, hyundai_nonhuman_kobest, hyundai_nonhuman_korquad_v1]" \
     --vram_available "48GB" \
     --per_device_train_batch_size 2 \
