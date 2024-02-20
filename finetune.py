@@ -24,7 +24,7 @@ def train(
     base_model: str = "EleutherAI/polyglot-ko-1.3b",  # the only required argument
     output_dir: str = "./lora-alpaca",
     data_mixture: List[str] = None,
-    max_example: int = None,
+    max_examples: int = None,
     vram_available: str = None,
     add_kodata: bool = False,
     # training hyperparams
@@ -57,7 +57,7 @@ def train(
         print(
             f"Training KULLM model with params:\n"
             f"{debug=}\n"
-            f"{max_example=}\n"
+            f"{max_examples=}\n"
             f"{vram_available=}\n"
             f"base_model: {base_model}\n"
             f"output_dir: {output_dir}\n"
@@ -80,7 +80,6 @@ def train(
         )
     assert base_model, "Please specify a --base_model, e.g. --base_model='huggyllama/llama-7b'"
     # gradient_accumulation_steps = batch_size // micro_batch_size
-
     prompter = Prompter(prompt_template_name)
 
     # Check if parameter passed or if set within environ
@@ -94,7 +93,7 @@ def train(
     if len(wandb_log_model) > 0:
         os.environ["WANDB_LOG_MODEL"] = wandb_log_model
     print(f"{use_wandb=}")
-    # use_wandb = False
+    use_wandb = False  # TODO for debug
 
     model = AutoModelForCausalLM.from_pretrained(
         base_model,
@@ -176,11 +175,11 @@ def train(
             print("KLUE dataset usage detected! Truncating KLUE...")
             data_without_klue = copy.deepcopy(data_mixture)
             data_without_klue.remove('klue')
-            data1 = get_mixture(dataset_names=data_without_klue, max_examples=max_example, split='train')
+            data1 = get_mixture(dataset_names=data_without_klue, max_examples=max_examples, split='train')
             data2 = get_mixture(dataset_names=['klue'], max_examples=200, split='train')
             data = concatenate_datasets([data1, data2])
         else:
-            data = get_mixture(dataset_names=data_mixture, max_examples=max_example, split='train')
+            data = get_mixture(dataset_names=data_mixture, max_examples=max_examples, split='train')
 
         # Added feature: mix other data (KOpen-platypus, OpenOrca-KO)
         if add_kodata:
@@ -221,7 +220,7 @@ def train(
             logging_steps=logging_steps,
             # optim="adamw_torch",  # since we use DS optim?
             evaluation_strategy="steps" if val_set_size > 0 else "no",
-            save_strategy="steps",
+            save_strategy="epoch",
             # eval_steps=200 if val_set_size > 0 else None,
             eval_steps=eval_steps,
             save_steps=save_steps,
@@ -248,6 +247,7 @@ def train(
     trainer.train(resume_from_checkpoint=resume_from_checkpoint)
 
     model.save_pretrained(output_dir)
+    tokenizer.save_pretrained(output_dir)
 
     print("\n If there's a warning about missing keys above, please disregard :)")
 
