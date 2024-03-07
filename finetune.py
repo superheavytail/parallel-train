@@ -9,8 +9,9 @@ import fire
 import setproctitle
 import torch
 import transformers
+import jsonlines
 from transformers import AutoModelForCausalLM, AutoTokenizer
-from datasets import load_dataset, load_from_disk, concatenate_datasets
+from datasets import load_dataset, load_from_disk, concatenate_datasets, Dataset
 from pklue import get_mixture
 
 from utils.prompter import Prompter, make_instruction_with_random_template
@@ -27,6 +28,7 @@ def train(
     max_examples: int = None,
     vram_available: str = None,
     add_kodata: bool = False,
+    random_switch: bool = None,
     # training hyperparams
     per_device_train_batch_size: int = 0,
     gradient_accumulation_steps: int = 0,
@@ -63,6 +65,7 @@ def train(
             f"output_dir: {output_dir}\n"
             f"data_mixture: {data_mixture}\n"
             f"add_kodata: {add_kodata}\n"
+            f"{random_switch=}\n"
             f"per_device_train_batch_size: {per_device_train_batch_size}\n"
             f"gradient_accumulation_steps: {gradient_accumulation_steps}\n"
             f"num_epochs: {num_epochs}\n"
@@ -108,6 +111,8 @@ def train(
     tokenizer.padding_side = "left"  # Allow batched inference
     if 'mistral' in base_model or 'upstage/SOLAR-10.7B-v1.0' in base_model:
         print("no pad_token defined in tokenizer... Setting pad_token equal to eos_token...")
+        tokenizer.pad_token_id = tokenizer.eos_token_id
+    if not tokenizer.pad_token_id:
         tokenizer.pad_token_id = tokenizer.eos_token_id
 
     def tokenize(prompt, add_eos_token=True):
@@ -165,12 +170,12 @@ def train(
             ]  # could be sped up, probably
         return tokenized_full_prompt
 
-    if vram_available == "82GB":
-        ds_config_file = "ds_config/experimenting_a100.json"
-    elif vram_available == "48GB":
-        ds_config_file = "ds_config/experimenting_a6000_nooffload.json"
-    else:
-        raise NotImplementedError
+    # if vram_available == "82GB":
+    #     ds_config_file = "ds_config/experimenting_a100.json"
+    # elif vram_available == "48GB":
+    #     ds_config_file = "ds_config/experimenting_a6000_nooffload.json"
+    # else:
+    #     raise NotImplementedError
 
     if not debug:
         # Truncating KLUE dataset if exists, since it is too big compared to other datasets.
@@ -192,6 +197,29 @@ def train(
             data = concatenate_datasets([data, platypus_ko, openorca_ko])
     else:
         data = get_mixture(dataset_names=['kobest'], max_examples=1000, split='train')
+
+    # For Taemin Lee, codeswitch gemma-2b-it.
+    # j = jsonlines.open("/data/potatowook/codeswitch/step3_results_filtered.jsonl")
+    # l = [e for e in j.iter()]
+    # if random_switch:
+    #     data = []
+    #     for e in l:
+    #         if random.random() < 0.5:
+    #             data.append({
+    #                 'instruction': f"context: {e['context']}\n\nQuestion: {e['new_question']}",
+    #                 'output': f"{e['answer']}"
+    #             })
+    #         else:
+    #             data.append({
+    #                 'instruction': f"context: {e['context']}\n\nQuestion: {e['question']}",
+    #                 'output': f"{e['answer']}"
+    #             })
+    # else:
+    #     data = [{
+    #         'instruction': f"context: {e['context']}\n\nQuestion: {e['new_question']}",
+    #         'output': f"{e['answer']}"
+    #     } for e in l]
+    # data = Dataset.from_list(data)
 
     # truncate 'klue' dataset to have up to 200 items for each subset
 
@@ -219,9 +247,9 @@ def train(
             # warmup_ratio=warmup_ratio,
             num_train_epochs=num_epochs,
             learning_rate=learning_rate,
-            # lr_scheduler_type=lr_scheduler_type,
+            lr_scheduler_type=lr_scheduler_type,
             logging_steps=logging_steps,
-            # optim="adamw_torch",  # since we use DS optim?
+            optim="adamw_torch",  # since we use DS optim?
             evaluation_strategy="steps" if val_set_size > 0 else "no",
             save_strategy="epoch",
             # eval_steps=200 if val_set_size > 0 else None,
@@ -234,10 +262,10 @@ def train(
             # ddp_find_unused_parameters=True,
             report_to="wandb" if use_wandb else [],
             run_name=wandb_run_name if use_wandb else None,
-            fp16=True,
+            bf16=True,
             # max_grad_norm=1.0,  # cutting edge issue, https://github.com/huggingface/transformers/pull/29212
             gradient_checkpointing=True,
-            deepspeed=ds_config_file,
+            # deepspeed=ds_config_file,
         ),
         data_collator=transformers.DataCollatorForSeq2Seq(
             tokenizer, pad_to_multiple_of=8, return_tensors="pt", padding=True
