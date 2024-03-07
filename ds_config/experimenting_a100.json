@@ -26,10 +26,10 @@
     "contiguous_gradients": true,
 
     "reduce_bucket_size": "auto",
-    "stage3_prefetch_bucket_size": 5e7,
-    "stage3_param_persistence_threshold": 1e5,
-    "stage3_max_live_parameters": 1e9,
-    "stage3_max_reuse_distance": 1e9,
+    "stage3_prefetch_bucket_size": 5e8,
+    "stage3_param_persistence_threshold": 1e6,
+    "stage3_max_live_parameters": 1e10,
+    "stage3_max_reuse_distance": 1e10,
     "memory_efficient_linear": true,
     "gather_16bit_weights_on_model_save": true
   },

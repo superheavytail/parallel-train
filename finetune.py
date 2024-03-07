@@ -24,7 +24,7 @@ def train(
     base_model: str = "EleutherAI/polyglot-ko-1.3b",  # the only required argument
     output_dir: str = "./lora-alpaca",
     data_mixture: List[str] = None,
-    max_example: int = None,
+    max_examples: int = None,
     vram_available: str = None,
     add_kodata: bool = False,
     # training hyperparams
@@ -42,7 +42,7 @@ def train(
     lr_scheduler_type: str = 'cosine',
     # llm hyperparams
     train_on_inputs: bool = False,  # if False, masks out inputs in loss
-    add_eos_token: bool = False,
+    add_eos_token: bool = True,
     # wandb params
     wandb_project: str = "",
     wandb_run_name: str = "",
@@ -57,7 +57,7 @@ def train(
         print(
             f"Training KULLM model with params:\n"
             f"{debug=}\n"
-            f"{max_example=}\n"
+            f"{max_examples=}\n"
             f"{vram_available=}\n"
             f"base_model: {base_model}\n"
             f"output_dir: {output_dir}\n"
@@ -94,7 +94,7 @@ def train(
     if len(wandb_log_model) > 0:
         os.environ["WANDB_LOG_MODEL"] = wandb_log_model
     print(f"{use_wandb=}")
-    # use_wandb = False
+    use_wandb = False
 
     model = AutoModelForCausalLM.from_pretrained(
         base_model,
@@ -106,8 +106,8 @@ def train(
 
     # tokenizer.pad_token_id = 0  # unk. we want this to be different from the eos token
     tokenizer.padding_side = "left"  # Allow batched inference
-    if 'mistral' in base_model:
-        print("Mistral model... Setting pad_token to eos_token...")
+    if 'mistral' in base_model or 'upstage/SOLAR-10.7B-v1.0' in base_model:
+        print("no pad_token defined in tokenizer... Setting pad_token equal to eos_token...")
         tokenizer.pad_token_id = tokenizer.eos_token_id
 
     def tokenize(prompt, add_eos_token=True):
@@ -132,30 +132,32 @@ def train(
 
         return result
 
+    # TODO need to refactor
     def generate_and_tokenize_prompt(data_point, random_chat_template=False):
         instruction = data_point['instruction']
         if random_chat_template:
             assert data_point['input'] == ""
             instruction = make_instruction_with_random_template(instruction)
 
+        data_input = data_point['input'] if 'input' in data_point.keys() else None
         full_prompt = prompter.generate_prompt(
             instruction,
-            data_point["input"],
+            # data_point["input"],
+            data_input,
             data_point["output"],
         )
         # eos_token을 일단은 무작위로 주는데, 이게 맞나 싶다. 벤치마크를 위해서는 맞을지도?
         # 다시 보니까, eos_token은 문장 맨 마지막에만 주어지는 거니까 항상 True로 줘도 돼 보임.
         # random_eos_token = random.choice([True, False])
-        random_eos_token = add_eos_token
-        tokenized_full_prompt = tokenize(full_prompt, add_eos_token=random_eos_token)
+        tokenized_full_prompt = tokenize(full_prompt, add_eos_token=add_eos_token)
         if not train_on_inputs:
             # user_prompt = prompter.generate_prompt(data_point["instruction"], data_point["input"])
-            user_prompt = prompter.generate_prompt(instruction, data_point['input'])
-            tokenized_user_prompt = tokenize(user_prompt, add_eos_token=random_eos_token)
+            user_prompt = prompter.generate_prompt(instruction, data_input)
+            tokenized_user_prompt = tokenize(user_prompt, add_eos_token=add_eos_token)
             user_prompt_len = len(tokenized_user_prompt["input_ids"])
 
             # if add_eos_token:
-            if random_eos_token:
+            if add_eos_token:
                 user_prompt_len -= 1
 
             tokenized_full_prompt["labels"] = [-100] * user_prompt_len + tokenized_full_prompt["labels"][
@@ -176,11 +178,11 @@ def train(
             print("KLUE dataset usage detected! Truncating KLUE...")
             data_without_klue = copy.deepcopy(data_mixture)
             data_without_klue.remove('klue')
-            data1 = get_mixture(dataset_names=data_without_klue, max_examples=max_example, split='train')
+            data1 = get_mixture(dataset_names=data_without_klue, max_examples=max_examples, split='train')
             data2 = get_mixture(dataset_names=['klue'], max_examples=200, split='train')
             data = concatenate_datasets([data1, data2])
         else:
-            data = get_mixture(dataset_names=data_mixture, max_examples=max_example, split='train')
+            data = get_mixture(dataset_names=data_mixture, max_examples=max_examples, split='train')
 
         # Added feature: mix other data (KOpen-platypus, OpenOrca-KO)
         if add_kodata:
@@ -221,10 +223,10 @@ def train(
             logging_steps=logging_steps,
             # optim="adamw_torch",  # since we use DS optim?
             evaluation_strategy="steps" if val_set_size > 0 else "no",
-            save_strategy="steps",
+            save_strategy="epoch",
             # eval_steps=200 if val_set_size > 0 else None,
-            eval_steps=eval_steps,
-            save_steps=save_steps,
+            # eval_steps=eval_steps,
+            # save_steps=save_steps,
             output_dir=output_dir,
             # save_total_limit=3,
             load_best_model_at_end=True if val_set_size > 0 else False,
@@ -233,6 +235,7 @@ def train(
             report_to="wandb" if use_wandb else [],
             run_name=wandb_run_name if use_wandb else None,
             fp16=True,
+            # max_grad_norm=1.0,  # cutting edge issue, https://github.com/huggingface/transformers/pull/29212
             gradient_checkpointing=True,
             deepspeed=ds_config_file,
         ),
@@ -248,6 +251,7 @@ def train(
     trainer.train(resume_from_checkpoint=resume_from_checkpoint)
 
     model.save_pretrained(output_dir)
+    tokenizer.save_pretrained(output_dir)
 
     print("\n If there's a warning about missing keys above, please disregard :)")
 
