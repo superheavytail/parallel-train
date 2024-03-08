@@ -19,9 +19,9 @@ from utils.load_additional_dataset import load_openorca_ko, load_platypus_ko
 
 def train(
     debug: bool = False,
-    mode: str = None,
     # model/data params
-    base_model: str = "EleutherAI/polyglot-ko-1.3b",  # the only required argument
+    base_model: str = "EleutherAI/polyglot-ko-1.3b",
+    bf16: bool = False,
     output_dir: str = "./lora-alpaca",
     data_mixture: List[str] = None,
     max_examples: int = None,
@@ -60,6 +60,7 @@ def train(
             f"{max_examples=}\n"
             f"{vram_available=}\n"
             f"base_model: {base_model}\n"
+            f"{bf16=}\n"
             f"output_dir: {output_dir}\n"
             f"data_mixture: {data_mixture}\n"
             f"add_kodata: {add_kodata}\n"
@@ -96,9 +97,13 @@ def train(
     print(f"{use_wandb=}")
     use_wandb = False
 
+    if bf16:
+        dtype = torch.bfloat16
+    else:
+        dtype = torch.float16
     model = AutoModelForCausalLM.from_pretrained(
         base_model,
-        torch_dtype=torch.float16,
+        torch_dtype=dtype,
         low_cpu_mem_usage=True,
     )
 
@@ -108,6 +113,8 @@ def train(
     tokenizer.padding_side = "left"  # Allow batched inference
     if 'mistral' in base_model or 'upstage/SOLAR-10.7B-v1.0' in base_model:
         print("no pad_token defined in tokenizer... Setting pad_token equal to eos_token...")
+        tokenizer.pad_token_id = tokenizer.eos_token_id
+    if not tokenizer.pad_token_id:
         tokenizer.pad_token_id = tokenizer.eos_token_id
 
     def tokenize(prompt, add_eos_token=True):
@@ -219,7 +226,7 @@ def train(
             # warmup_ratio=warmup_ratio,
             num_train_epochs=num_epochs,
             learning_rate=learning_rate,
-            # lr_scheduler_type=lr_scheduler_type,
+            lr_scheduler_type=lr_scheduler_type,
             logging_steps=logging_steps,
             # optim="adamw_torch",  # since we use DS optim?
             evaluation_strategy="steps" if val_set_size > 0 else "no",
@@ -234,7 +241,8 @@ def train(
             # ddp_find_unused_parameters=True,
             report_to="wandb" if use_wandb else [],
             run_name=wandb_run_name if use_wandb else None,
-            fp16=True,
+            # fp16=True,
+            bf16=True,
             # max_grad_norm=1.0,  # cutting edge issue, https://github.com/huggingface/transformers/pull/29212
             gradient_checkpointing=True,
             deepspeed=ds_config_file,
