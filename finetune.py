@@ -46,6 +46,7 @@ def train(
     train_on_inputs: bool = False,  # if False, masks out inputs in loss
     add_eos_token: bool = True,
     # wandb params
+    use_wandb: bool = False,
     wandb_project: str = "",
     wandb_run_name: str = "",
     wandb_watch: str = "",  # options: false | gradients | all
@@ -54,7 +55,6 @@ def train(
     prompt_template_name: str = "kullm",  # The prompt template to use, will default to alpaca.
 ):
     setproctitle.setproctitle(f"potatowook {Path(output_dir).name}")
-    print(type(add_eos_token))
     if int(os.environ.get("LOCAL_RANK", 0)) == 0:
         print(
             f"Training KULLM model with params:\n"
@@ -74,6 +74,7 @@ def train(
             f"val_set_size: {val_set_size}\n"
             f"train_on_inputs: {train_on_inputs}\n"
             f"add_eos_token: {add_eos_token}\n"
+            f"{use_wandb=}\n"
             f"wandb_project: {wandb_project}\n"
             f"wandb_run_name: {wandb_run_name}\n"
             f"wandb_watch: {wandb_watch}\n"
@@ -87,23 +88,18 @@ def train(
     prompter = Prompter(prompt_template_name)
 
     # Check if parameter passed or if set within environ
-    print(f"{wandb_project=}")
-    use_wandb = len(wandb_project) > 0 or ("WANDB_PROJECT" in os.environ and len(os.environ["WANDB_PROJECT"]) > 0)
+    # print(f"{wandb_project=}")
+    # use_wandb = len(wandb_project) > 0 or ("WANDB_PROJECT" in os.environ and len(os.environ["WANDB_PROJECT"]) > 0)
     # Only overwrite environ if wandb param passed
-    if len(wandb_project) > 0:
-        os.environ["WANDB_PROJECT"] = wandb_project
-    if len(wandb_watch) > 0:
-        os.environ["WANDB_WATCH"] = wandb_watch
-    if len(wandb_log_model) > 0:
-        os.environ["WANDB_LOG_MODEL"] = wandb_log_model
-    print(f"{use_wandb=}")
-    use_wandb = False
+    # if len(wandb_project) > 0:
+    #     os.environ["WANDB_PROJECT"] = wandb_project
+    # if len(wandb_watch) > 0:
+    #     os.environ["WANDB_WATCH"] = wandb_watch
+    # if len(wandb_log_model) > 0:
+    #     os.environ["WANDB_LOG_MODEL"] = wandb_log_model
+    # print(f"{use_wandb=}")
 
-    model = AutoModelForCausalLM.from_pretrained(
-        base_model,
-        torch_dtype=torch.float16,
-        low_cpu_mem_usage=True,
-    )
+    model = AutoModelForCausalLM.from_pretrained(base_model)
 
     tokenizer = AutoTokenizer.from_pretrained(base_model)
 
@@ -170,63 +166,63 @@ def train(
             ]  # could be sped up, probably
         return tokenized_full_prompt
 
-    # if vram_available == "82GB":
-    #     ds_config_file = "ds_config/experimenting_a100.json"
-    # elif vram_available == "48GB":
-    #     ds_config_file = "ds_config/experimenting_a6000_nooffload.json"
+    if vram_available == "82GB":
+        ds_config_file = "ds_config/experimenting_a100.json"
+    elif vram_available == "48GB":
+        ds_config_file = "ds_config/experimenting_a6000_nooffload.json"
     # else:
     #     raise NotImplementedError
 
-    if not debug:
-        # Truncating KLUE dataset if exists, since it is too big compared to other datasets.
-        if 'klue' in data_mixture:
-            print("KLUE dataset usage detected! Truncating KLUE...")
-            data_without_klue = copy.deepcopy(data_mixture)
-            data_without_klue.remove('klue')
-            data1 = get_mixture(dataset_names=data_without_klue, max_examples=max_examples, split='train')
-            data2 = get_mixture(dataset_names=['klue'], max_examples=200, split='train')
-            data = concatenate_datasets([data1, data2])
-        else:
-            data = get_mixture(dataset_names=data_mixture, max_examples=max_examples, split='train')
-
-        # Added feature: mix other data (KOpen-platypus, OpenOrca-KO)
-        if add_kodata:
-            print('\033[95m' + "Mixing Additional Korean Data..." + '\033[0m')
-            platypus_ko = load_platypus_ko()
-            openorca_ko = load_openorca_ko()
-            data = concatenate_datasets([data, platypus_ko, openorca_ko])
-    else:
-        data = get_mixture(dataset_names=['kobest'], max_examples=1000, split='train')
+    # if not debug:
+    #     # Truncating KLUE dataset if exists, since it is too big compared to other datasets.
+    #     if 'klue' in data_mixture:
+    #         print("KLUE dataset usage detected! Truncating KLUE...")
+    #         data_without_klue = copy.deepcopy(data_mixture)
+    #         data_without_klue.remove('klue')
+    #         data1 = get_mixture(dataset_names=data_without_klue, max_examples=max_examples, split='train')
+    #         data2 = get_mixture(dataset_names=['klue'], max_examples=200, split='train')
+    #         data = concatenate_datasets([data1, data2])
+    #     else:
+    #         data = get_mixture(dataset_names=data_mixture, max_examples=max_examples, split='train')
+    #
+    #     # Added feature: mix other data (KOpen-platypus, OpenOrca-KO)
+    #     if add_kodata:
+    #         print('\033[95m' + "Mixing Additional Korean Data..." + '\033[0m')
+    #         platypus_ko = load_platypus_ko()
+    #         openorca_ko = load_openorca_ko()
+    #         data = concatenate_datasets([data, platypus_ko, openorca_ko])
+    # else:
+    #     data = get_mixture(dataset_names=['kobest'], max_examples=1000, split='train')
 
     # For Taemin Lee, codeswitch gemma-2b-it.
-    # j = jsonlines.open("/data/potatowook/codeswitch/step3_results_filtered.jsonl")
-    # l = [e for e in j.iter()]
-    # if random_switch:
-    #     data = []
-    #     for e in l:
-    #         if random.random() < 0.5:
-    #             data.append({
-    #                 'instruction': f"context: {e['context']}\n\nQuestion: {e['new_question']}",
-    #                 'output': f"{e['answer']}"
-    #             })
-    #         else:
-    #             data.append({
-    #                 'instruction': f"context: {e['context']}\n\nQuestion: {e['question']}",
-    #                 'output': f"{e['answer']}"
-    #             })
-    # else:
-    #     data = [{
-    #         'instruction': f"context: {e['context']}\n\nQuestion: {e['new_question']}",
-    #         'output': f"{e['answer']}"
-    #     } for e in l]
-    # data = Dataset.from_list(data)
+    j = jsonlines.open("/data/potatowook/codeswitch/step3_results_filtered.jsonl")
+    l = [e for e in j.iter()]
+    if random_switch:
+        data = []
+        for e in l:
+            if random.random() < 0.5:
+                data.append({
+                    'instruction': f"context: {e['context']}\n\nQuestion: {e['new_question']}",
+                    'output': f"{e['answer']}"
+                })
+            else:
+                data.append({
+                    'instruction': f"context: {e['context']}\n\nQuestion: {e['question']}",
+                    'output': f"{e['answer']}"
+                })
+    else:
+        data = [{
+            'instruction': f"context: {e['context']}\n\nQuestion: {e['new_question']}",
+            'output': f"{e['answer']}"
+        } for e in l]
+    data = Dataset.from_list(data)
 
     # truncate 'klue' dataset to have up to 200 items for each subset
 
-    print("---")
-    print(data)
-    print(f"{val_set_size}")
-    print("---")
+    # print("---")
+    # print(data)
+    # print(f"{val_set_size}")
+    # print("---")
 
     if val_set_size > 0:
         train_val = data["train"].train_test_split(test_size=val_set_size, shuffle=True, seed=42)
@@ -235,6 +231,9 @@ def train(
     else:
         train_data = data.shuffle().map(generate_and_tokenize_prompt)
         val_data = None
+
+    # if torch.__version__ >= "2" and sys.platform != "win32":
+    #     model = torch.compile(model)
 
     trainer = transformers.Trainer(
         model=model,
@@ -265,7 +264,7 @@ def train(
             bf16=True,
             # max_grad_norm=1.0,  # cutting edge issue, https://github.com/huggingface/transformers/pull/29212
             gradient_checkpointing=True,
-            # deepspeed=ds_config_file,
+            deepspeed=ds_config_file,
         ),
         data_collator=transformers.DataCollatorForSeq2Seq(
             tokenizer, pad_to_multiple_of=8, return_tensors="pt", padding=True
@@ -273,13 +272,11 @@ def train(
     )
     model.config.use_cache = False
 
-    # if torch.__version__ >= "2" and sys.platform != "win32":
-    #     model = torch.compile(model)
-
     trainer.train(resume_from_checkpoint=resume_from_checkpoint)
 
-    model.save_pretrained(output_dir)
-    tokenizer.save_pretrained(output_dir)
+    # save tokenizer to each checkpoint
+    for path in [e for e in Path(output_dir).glob("*") if e.is_dir()]:
+        tokenizer.save_pretrained(path)
 
     print("\n If there's a warning about missing keys above, please disregard :)")
 
