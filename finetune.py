@@ -44,6 +44,7 @@ def train(
     train_on_inputs: bool = False,  # if False, masks out inputs in loss
     add_eos_token: bool = True,
     # wandb params
+    use_wandb: bool = False,
     wandb_project: str = "",
     wandb_run_name: str = "",
     wandb_watch: str = "",  # options: false | gradients | all
@@ -72,6 +73,7 @@ def train(
             f"val_set_size: {val_set_size}\n"
             f"train_on_inputs: {train_on_inputs}\n"
             f"add_eos_token: {add_eos_token}\n"
+            f"{use_wandb=}\n"
             f"wandb_project: {wandb_project}\n"
             f"wandb_run_name: {wandb_run_name}\n"
             f"wandb_watch: {wandb_watch}\n"
@@ -85,27 +87,19 @@ def train(
     prompter = Prompter(prompt_template_name)
 
     # Check if parameter passed or if set within environ
-    print(f"{wandb_project=}")
-    use_wandb = len(wandb_project) > 0 or ("WANDB_PROJECT" in os.environ and len(os.environ["WANDB_PROJECT"]) > 0)
-    # Only overwrite environ if wandb param passed
-    if len(wandb_project) > 0:
-        os.environ["WANDB_PROJECT"] = wandb_project
-    if len(wandb_watch) > 0:
-        os.environ["WANDB_WATCH"] = wandb_watch
-    if len(wandb_log_model) > 0:
-        os.environ["WANDB_LOG_MODEL"] = wandb_log_model
-    print(f"{use_wandb=}")
-    use_wandb = False
+    # print(f"{wandb_project=}")
+    # use_wandb = len(wandb_project) > 0 or ("WANDB_PROJECT" in os.environ and len(os.environ["WANDB_PROJECT"]) > 0)
+    # # Only overwrite environ if wandb param passed
+    # if len(wandb_project) > 0:
+    #     os.environ["WANDB_PROJECT"] = wandb_project
+    # if len(wandb_watch) > 0:
+    #     os.environ["WANDB_WATCH"] = wandb_watch
+    # if len(wandb_log_model) > 0:
+    #     os.environ["WANDB_LOG_MODEL"] = wandb_log_model
+    # print(f"{use_wandb=}")
+    # use_wandb = False
 
-    if bf16:
-        dtype = torch.bfloat16
-    else:
-        dtype = torch.float16
-    model = AutoModelForCausalLM.from_pretrained(
-        base_model,
-        torch_dtype=dtype,
-        low_cpu_mem_usage=True,
-    )
+    model = AutoModelForCausalLM.from_pretrained(base_model)
 
     tokenizer = AutoTokenizer.from_pretrained(base_model)
 
@@ -253,12 +247,9 @@ def train(
     )
     model.config.use_cache = False
 
-    # if torch.__version__ >= "2" and sys.platform != "win32":
-    #     model = torch.compile(model)
-
     trainer.train(resume_from_checkpoint=resume_from_checkpoint)
 
-    model.save_pretrained(output_dir)
+    # save
     tokenizer.save_pretrained(output_dir)
 
     print("\n If there's a warning about missing keys above, please disregard :)")
