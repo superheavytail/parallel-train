@@ -27,6 +27,7 @@ def train(
     max_examples: int = None,
     vram_available: str = None,
     add_kodata: bool = False,
+    apply_chat_template: bool = False,
     # training hyperparams
     per_device_train_batch_size: int = 0,
     gradient_accumulation_steps: int = 0,
@@ -65,6 +66,7 @@ def train(
             f"output_dir: {output_dir}\n"
             f"data_mixture: {data_mixture}\n"
             f"add_kodata: {add_kodata}\n"
+            f"{apply_chat_template=}\n"
             f"per_device_train_batch_size: {per_device_train_batch_size}\n"
             f"gradient_accumulation_steps: {gradient_accumulation_steps}\n"
             f"num_epochs: {num_epochs}\n"
@@ -111,6 +113,11 @@ def train(
     if not tokenizer.pad_token_id:
         tokenizer.pad_token_id = tokenizer.eos_token_id
 
+    if apply_chat_template:
+        with open('templates/kullm3_chat_template.txt', 'rt') as f:
+            kullm3_chat_template = f.read()
+        tokenizer.chat_template = kullm3_chat_template
+
     def tokenize(prompt, add_eos_token=True):
         # there's probably a way to do this with the tokenizer settings
         # but again, gotta move fast
@@ -120,6 +127,7 @@ def train(
             max_length=cutoff_len,
             padding=False,
             return_tensors=None,
+            add_special_tokens=False,  # Add when kullm3 development, since apply_chat_template inserts bos manually
         )
         if (
             result["input_ids"][-1] != tokenizer.eos_token_id
@@ -141,20 +149,33 @@ def train(
             instruction = make_instruction_with_random_template(instruction)
 
         data_input = data_point['input'] if 'input' in data_point.keys() else None
-        full_prompt = prompter.generate_prompt(
-            instruction,
-            # data_point["input"],
-            data_input,
-            data_point["output"],
-        )
+
+        if apply_chat_template:
+            # for kullm3 development
+            instruction = tokenizer.apply_chat_template([{
+                'role': 'user',
+                'content': instruction
+            }], tokenize=False)
+            full_prompt = instruction + data_point['output']
+        else:
+            # legacy code (before kullm3)
+            full_prompt = prompter.generate_prompt(
+                instruction,
+                # data_point["input"],
+                data_input,
+                data_point["output"],
+            )
         # eos_token을 일단은 무작위로 주는데, 이게 맞나 싶다. 벤치마크를 위해서는 맞을지도?
         # 다시 보니까, eos_token은 문장 맨 마지막에만 주어지는 거니까 항상 True로 줘도 돼 보임.
         # random_eos_token = random.choice([True, False])
         tokenized_full_prompt = tokenize(full_prompt, add_eos_token=add_eos_token)
         if not train_on_inputs:
-            # user_prompt = prompter.generate_prompt(data_point["instruction"], data_point["input"])
-            user_prompt = prompter.generate_prompt(instruction, data_input)
-            tokenized_user_prompt = tokenize(user_prompt, add_eos_token=add_eos_token)
+            if apply_chat_template:
+                tokenized_user_prompt = tokenize(instruction, add_eos_token=add_eos_token)
+            else:
+                # user_prompt = prompter.generate_prompt(data_point["instruction"], data_point["input"])
+                user_prompt = prompter.generate_prompt(instruction, data_input)
+                tokenized_user_prompt = tokenize(user_prompt, add_eos_token=add_eos_token)
             user_prompt_len = len(tokenized_user_prompt["input_ids"])
 
             # if add_eos_token:
@@ -192,7 +213,7 @@ def train(
             openorca_ko = load_openorca_ko()
             data = concatenate_datasets([data, platypus_ko, openorca_ko])
     else:
-        data = get_mixture(dataset_names=['kobest'], max_examples=1000, split='train')
+        data = get_mixture(dataset_names=['kullm3_aya'], max_examples=200, split='train')
 
     # truncate 'klue' dataset to have up to 200 items for each subset
 
