@@ -204,7 +204,13 @@ def train(
             data2 = get_mixture(dataset_names=['klue'], max_examples=200, split='train')
             data = concatenate_datasets([data1, data2])
         else:
-            data = get_mixture(dataset_names=data_mixture, max_examples=max_examples, split='train')
+            if 'kullm3_square_gpt4_sampled' in data_mixture:  # experimental feature: use small part of SQuARE dataset
+                data_mixture.remove('kullm3_square_gpt4_sampled')
+                data = get_mixture(dataset_names=data_mixture, max_examples=max_examples, split='train')
+                data_square = get_mixture(dataset_names=['kullm3_square_gpt4_sampled'], max_examples=200, split='train')
+                data = concatenate_datasets([data, data_square])
+            else:
+                data = get_mixture(dataset_names=data_mixture, max_examples=max_examples, split='train')
 
         # Added feature: mix other data (KOpen-platypus, OpenOrca-KO)
         if add_kodata:
@@ -256,8 +262,8 @@ def train(
             # ddp_find_unused_parameters=True,
             report_to="wandb" if use_wandb else [],
             run_name=wandb_run_name if use_wandb else None,
-            # fp16=True,
-            bf16=True,
+            fp16=True,
+            # bf16=True,
             # max_grad_norm=1.0,  # cutting edge issue, https://github.com/huggingface/transformers/pull/29212
             gradient_checkpointing=True,
             deepspeed=ds_config_file,
