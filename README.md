@@ -1,3 +1,3 @@
-# lm-parallel
+# parallel-train
 
 by DeepSpeed!
