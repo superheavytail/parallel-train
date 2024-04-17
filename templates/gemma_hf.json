@@ -1,0 +1,4 @@
+{
+    "description": "Default GEMMA prompt adopted only plain instruction. ref: huggingface GEMMA model card",
+    "prompt_no_input": "{instruction}"
+}
