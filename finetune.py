@@ -88,6 +88,11 @@ def train(
 
     prompter = Prompter(prompt_template_name)
 
+    if bf16:
+        fp16 = False
+    else:
+        fp16 = True
+
     # Check if parameter passed or if set within environ
     # print(f"{wandb_project=}")
     # use_wandb = len(wandb_project) > 0 or ("WANDB_PROJECT" in os.environ and len(os.environ["WANDB_PROJECT"]) > 0)
@@ -262,8 +267,8 @@ def train(
             # ddp_find_unused_parameters=True,
             report_to="wandb" if use_wandb else [],
             run_name=wandb_run_name if use_wandb else None,
-            fp16=True,
-            # bf16=True,
+            fp16=fp16,
+            bf16=bf16,
             # max_grad_norm=1.0,  # cutting edge issue, https://github.com/huggingface/transformers/pull/29212
             gradient_checkpointing=True,
             deepspeed=ds_config_file,
