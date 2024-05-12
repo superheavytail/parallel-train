@@ -13,9 +13,6 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from datasets import load_dataset, load_from_disk, concatenate_datasets
 from pklue import get_mixture
 
-from utils.prompter import Prompter, make_instruction_with_random_template
-from utils.load_additional_dataset import load_openorca_ko, load_platypus_ko
-
 
 def train(
     debug: bool = False,
