@@ -70,7 +70,7 @@ def train(
             f"resume_from_checkpoint: {resume_from_checkpoint or False}\n"
             f"prompt template: {prompt_template_name}\n"
         )
-    model = AutoModelForCausalLM.from_pretrained(base_model)
+    model = AutoModelForCausalLM.from_pretrained(base_model, attn_implementation='sdpa')
     tokenizer = AutoTokenizer.from_pretrained(base_model, add_eos_token=True)
     if tokenizer.pad_token_id is None or tokenizer.eos_token_id == tokenizer.pad_token_id:
         if tokenizer.unk_token_id is None:
@@ -102,13 +102,13 @@ def train(
         if 'square_gpt4_sampled' in data_mixture:  # experimental feature: use small part of SQuARE dataset
             data_mixture.remove('square_gpt4_sampled')
             data = get_mixture(dataset_names=data_mixture, max_examples=max_examples, split='train')
-            data_square = get_mixture(dataset_names=['square_gpt4_sampled'], max_examples=200, split='train')
+            data_square = get_mixture(dataset_names=['square_gpt4_sampled'], max_examples=400, split='train')
             data = concatenate_datasets([data, data_square])
         else:
             data = get_mixture(dataset_names=data_mixture, max_examples=max_examples, split='train')
     else:
-        # since aya_ko is small dataset, let's use this.
-        data = get_mixture(dataset_names=['aya_ko'], max_examples=200, split='train')
+        # since aya_ko_gpt4o is small dataset, let's use this.
+        data = get_mixture(dataset_names=['aya_ko_gpt4o'], max_examples=200, split='train')
 
     if val_set_size > 0:
         train_val = data["train"].train_test_split(test_size=val_set_size, shuffle=True, seed=42)
