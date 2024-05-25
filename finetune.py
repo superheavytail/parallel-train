@@ -26,7 +26,6 @@ def train(
     gradient_accumulation_steps: int = 0,
     num_epochs: int = 3,
     learning_rate: float = 3e-4,
-    cutoff_len: int = 2048,
     val_set_size: int = 2000,
     warmup_ratio: float = 0.0,
     warmup_steps: int = 0,
@@ -42,7 +41,6 @@ def train(
     wandb_watch: str = "",  # options: false | gradients | all
     wandb_log_model: str = "",  # options: false | true
     resume_from_checkpoint: str = None,  # either training checkpoint or final adapter
-    prompt_template_name: str = "kullm",  # The prompt template to use, will default to alpaca.
 ):
     setproctitle.setproctitle(f"potatowook {Path(output_dir).name}")
     if int(os.environ.get("LOCAL_RANK", 0)) == 0:
@@ -60,7 +58,6 @@ def train(
             f"gradient_accumulation_steps: {gradient_accumulation_steps}\n"
             f"num_epochs: {num_epochs}\n"
             f"learning_rate: {learning_rate}\n"
-            f"cutoff_len: {cutoff_len}\n"
             f"val_set_size: {val_set_size}\n"
             f"{use_wandb=}\n"
             f"wandb_project: {wandb_project}\n"
@@ -68,7 +65,6 @@ def train(
             f"wandb_watch: {wandb_watch}\n"
             f"wandb_log_model: {wandb_log_model}\n"
             f"resume_from_checkpoint: {resume_from_checkpoint or False}\n"
-            f"prompt template: {prompt_template_name}\n"
         )
     model = AutoModelForCausalLM.from_pretrained(base_model, attn_implementation='sdpa')
     tokenizer = AutoTokenizer.from_pretrained(base_model, add_eos_token=True)
@@ -78,22 +74,33 @@ def train(
         tokenizer.pad_token_id = tokenizer.unk_token_id
     if 'solar' in base_model.lower():
         tokenizer.model_max_length = 4096  # since solar default setting is ridiculous
+        collator = DataCollatorForCompletionOnlyLM(
+            response_template="[/INST]",
+            instruction_template="[INST]",
+            tokenizer=tokenizer
+        )
+    elif base_model == 'CohereForAI/aya-23-35B':
+        tokenizer.model_max_length = 8192  # cohere aya 23 35B model's context length
+        collator = DataCollatorForCompletionOnlyLM(
+            response_template=[255000, 255007],
+            instruction_template=[255000, 255006],
+            tokenizer=tokenizer
+        )
+        kullm_system_message = "You are an AI chatbot named 'KULLM', which means '구름' in Korean. It's abbreviation of 'Korea University Large Language Model'. NLP&AI Lab, which is in Korea University (고려대학교) creates you."
+    else:
+        raise NotImplementedError
 
     if custom_chat_template:
         with open(custom_chat_template, 'rt') as f:
             chat_template = f.read()
         tokenizer.chat_template = chat_template
 
-    collator = DataCollatorForCompletionOnlyLM(
-        response_template="[/INST]",
-        instruction_template="[INST]",
-        tokenizer=tokenizer
-    )
-
     def make_inputs(item):
         chat = item['chat']
         messages = [{'role': e[0], 'content': e[1]} for e in chat]
-        inputs = tokenizer.apply_chat_template(messages, add_generation_prompt=True, truncation=True)
+        if base_model == 'CohereForAI/aya-23-35B':
+            messages = [{'role': 'system', 'content': kullm_system_message}] + messages
+        inputs = tokenizer.apply_chat_template(messages, add_generation_prompt=False, truncation=True)
         return {'input_ids': inputs}
 
     # will be removed, and truncating function will move to pKLUE.
