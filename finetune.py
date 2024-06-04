@@ -114,8 +114,8 @@ def train(
         else:
             data = get_mixture(dataset_names=data_mixture, max_examples=max_examples, split='train')
     else:
-        # since aya_ko_gpt4o is small dataset, let's use this.
-        data = get_mixture(dataset_names=['aya_ko_gpt4o'], max_examples=200, split='train')
+        # k_ipsum uses very long sequence length, so it tests extreme VRAM condition
+        data = get_mixture(dataset_names=['k_ipsum'])
 
     if val_set_size > 0:
         train_val = data["train"].train_test_split(test_size=val_set_size, shuffle=True, seed=42)
